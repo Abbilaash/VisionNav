@@ -4,36 +4,104 @@ from inference.core.interfaces.stream.sinks import render_boxes
 import threading
 import cv2
 import numpy as np
+import func
+import pyttsx3
+import time
+import random
 
 # Initialize the CustomTkinter app
 app = ctk.CTk()
 app.geometry("900x600")
 app.title("VisionNav Results")
 
-predictions_textbox = ctk.CTkLabel(master=app, text="VisionNav",font=("Arial", 20))
-predictions_textbox.place(x=100, y=10)
+titletext = ctk.CTkLabel(master=app, text="VisionNav Dashboard",font=("Arial", 25,"bold"))
+titletext.place(x=50, y=35)
 
 # Predictions display on the right side
 predictions_textbox = ctk.CTkTextbox(master=app, width=300, height=300)
-predictions_textbox.place(x=100, y=130)
+predictions_textbox.place(x=50, y=200)
 
 # Start detection button on the left
 start_button = ctk.CTkButton(master=app, text="Start Object Detection", width=200)
-start_button.place(x=50, y=60)
+start_button.place(x=50, y=100)
+
+# Pause and Resume buttons
+pause_button = ctk.CTkButton(master=app, text="Pause", width=100)
+pause_button.place(x=50, y=140)
+
+resume_button = ctk.CTkButton(master=app, text="Resume", width=100)
+resume_button.place(x=160, y=140)
+
+# bot conversation box
+convo_textbox = ctk.CTkTextbox(master=app, width=500, height=300)
+convo_textbox.place(x=400, y=200)
+
+# Flag to control insertion
+insertion_paused = False
+
+# List to store predictions
+predictions_list = []
+predictions_lock = threading.Lock()
+
+# Function to speak consolidated predictions
+def speak_predictions():
+    while True:
+        time.sleep(5)
+        with predictions_lock:
+            if predictions_list:
+                unique_objects = set(predictions_list)
+
+                message_template = random.choice(func.messages())
+                message = message_template.format(object_class=unique_objects)
+
+                # Thread initialization to speak the message
+                threading.Thread(target=speak_text, args=(message,), daemon=True).start()
+
+                # Insert the message into the conversation textbox
+                convo_textbox.configure(state="normal")
+                convo_textbox.insert(ctk.END, message + "\n")
+                convo_textbox.see(ctk.END)
+                convo_textbox.configure(state="disabled")
+
+                # Clear the predictions list
+                predictions_list.clear()
+
+def speak_text(text):
+    """Function to speak the text using pyttsx3 (runs in its own thread)."""
+    voice_engine.say(text)
+    voice_engine.runAndWait()
+
+# Start the thread to speak predictions
+threading.Thread(target=speak_predictions, daemon=True).start()
+
+
+def pause_insertion():
+    global insertion_paused
+    insertion_paused = True
+def resume_insertion():
+    global insertion_paused
+    insertion_paused = False
+
+voice_engine = pyttsx3.init()
 
 # Custom function to handle predictions and print detected objects
 def custom_on_prediction(predictions, frame):
     try:
-        for prediction in predictions['predictions']:
-            object_class = prediction['class']
-            confidence = prediction['confidence']
-            # Insert predictions into the textbox
-            predictions_textbox.configure(state="normal")
-            predictions_textbox.insert(ctk.END, f"Object: {object_class}, Confidence: {confidence:.2f}\n")
-            predictions_textbox.see(ctk.END)  # Scroll to the end of the textbox
-            predictions_textbox.configure(state="disabled")  # Disable editing
-            print(f"Object: {object_class}, Confidence: {confidence:.2f}")
-        
+        if not insertion_paused:
+            for prediction in predictions['predictions']:
+                object_class = prediction['class']
+                confidence = prediction['confidence']
+                # Insert predictions into the textbox
+                predictions_textbox.configure(state="normal")
+                predictions_textbox.insert(ctk.END, f"Object: {object_class}, Confidence: {confidence:.2f}\n")
+                predictions_textbox.see(ctk.END)  # Scroll to the end of the textbox
+                predictions_textbox.configure(state="disabled")  # Disable editing
+                print(f"Object: {object_class}, Confidence: {confidence:.2f}")
+
+                with predictions_lock:
+                    predictions_list.append(object_class)
+
+
         # Render the bounding boxes on the frame
         render_boxes(predictions, frame)
 
@@ -72,6 +140,8 @@ def start_detection():
 
 # Link the button to the start detection function
 start_button.configure(command=start_detection)
+pause_button.configure(command=pause_insertion)
+resume_button.configure(command=resume_insertion)
 
 # Start the Tkinter main loop
 app.mainloop()
