@@ -8,6 +8,7 @@ import func
 import pyttsx3
 import time
 import random
+import queue
 
 # Initialize the CustomTkinter app
 app = ctk.CTk()
@@ -43,10 +44,22 @@ insertion_paused = False
 predictions_list = []
 predictions_lock = threading.Lock()
 
+voice_engine = pyttsx3.init()
+message_queue = queue.Queue()
+
+def tts_worker():
+    while True:
+        message = message_queue.get()
+        voice_engine.say(message)
+        voice_engine.runAndWait()
+        message_queue.task_done()
+
+threading.Thread(target=tts_worker, daemon=True).start()
+
 # Function to speak consolidated predictions
 def speak_predictions():
     while True:
-        time.sleep(5)
+        time.sleep(3)
         with predictions_lock:
             if predictions_list:
                 unique_objects = set(predictions_list)
@@ -54,8 +67,7 @@ def speak_predictions():
                 message_template = random.choice(func.messages())
                 message = message_template.format(object_class=unique_objects)
 
-                # Thread initialization to speak the message
-                threading.Thread(target=speak_text, args=(message,), daemon=True).start()
+                message_queue.put(message)
 
                 # Insert the message into the conversation textbox
                 convo_textbox.configure(state="normal")
@@ -65,11 +77,6 @@ def speak_predictions():
 
                 # Clear the predictions list
                 predictions_list.clear()
-
-def speak_text(text):
-    """Function to speak the text using pyttsx3 (runs in its own thread)."""
-    voice_engine.say(text)
-    voice_engine.runAndWait()
 
 # Start the thread to speak predictions
 threading.Thread(target=speak_predictions, daemon=True).start()
@@ -82,11 +89,10 @@ def resume_insertion():
     global insertion_paused
     insertion_paused = False
 
-voice_engine = pyttsx3.init()
-
 # Custom function to handle predictions and print detected objects
 def custom_on_prediction(predictions, frame):
     try:
+        frame_hright,frame_width = frame.shape[:2]
         if not insertion_paused:
             for prediction in predictions['predictions']:
                 object_class = prediction['class']
